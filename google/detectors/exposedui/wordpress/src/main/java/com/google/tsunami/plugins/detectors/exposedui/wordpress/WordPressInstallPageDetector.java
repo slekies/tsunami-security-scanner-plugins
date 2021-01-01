@@ -16,6 +16,7 @@
 package com.google.tsunami.plugins.detectors.exposedui.wordpress;
 
 import static com.google.common.base.Preconditions.checkNotNull;
+import static com.google.common.collect.ImmutableList.toImmutableList;
 import static com.google.tsunami.common.net.http.HttpRequest.get;
 
 import com.google.common.collect.ImmutableList;
@@ -74,12 +75,12 @@ public final class WordPressInstallPageDetector implements VulnDetector {
         DetectionReportList.newBuilder()
             .addAllDetectionReports(
                 matchedServices.stream()
-                        // TODO(b/147455416): checking web service is not needed once we enable
-                        // service name filtering on this plugin.
-                        .filter(NetworkServiceUtils::isWebService)
-                        .filter(this::isServiceVulnerable)
-                        .map(networkService -> buildDetectionReport(targetInfo, networkService))
-                    ::iterator)
+                    // TODO(b/147455416): checking web service is not needed once we enable
+                    // service name filtering on this plugin.
+                    .filter(NetworkServiceUtils::isWebService)
+                    .filter(this::isServiceVulnerable)
+                    .map(networkService -> buildDetectionReport(targetInfo, networkService))
+                    .collect(toImmutableList()))
             .build();
 
     logger.atInfo().log(
@@ -94,7 +95,8 @@ public final class WordPressInstallPageDetector implements VulnDetector {
             + "wp-admin/install.php?step=1";
     try {
       // This is a blocking call.
-      HttpResponse response = httpClient.send(get(targetUri).withEmptyHeaders().build());
+      HttpResponse response =
+          httpClient.send(get(targetUri).withEmptyHeaders().build(), networkService);
       return response.status().isSuccess()
           // TODO(b/147455416): checking WordPress string is not needed once we have plugin
           // matching logic.

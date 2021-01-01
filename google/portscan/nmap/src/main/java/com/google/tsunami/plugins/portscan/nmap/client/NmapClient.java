@@ -28,9 +28,10 @@ import com.google.tsunami.plugins.portscan.nmap.client.data.IPortTarget;
 import com.google.tsunami.plugins.portscan.nmap.client.data.PortRange;
 import com.google.tsunami.plugins.portscan.nmap.client.data.ScriptAndArgs;
 import com.google.tsunami.plugins.portscan.nmap.client.data.SinglePort;
-import com.google.tsunami.plugins.portscan.nmap.client.data.xml.Nmaprun;
 import com.google.tsunami.plugins.portscan.nmap.client.parser.XMLParser;
+import com.google.tsunami.plugins.portscan.nmap.client.result.NmapRun;
 import com.google.tsunami.proto.NetworkEndpoint;
+import com.google.tsunami.proto.TransportProtocol;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;
@@ -42,7 +43,10 @@ import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Executor;
-import javax.xml.bind.JAXBException;
+import java.util.stream.Stream;
+import javax.inject.Inject;
+import javax.xml.parsers.ParserConfigurationException;
+import org.xml.sax.SAXException;
 
 /**
  * Client for the open-source nmap tool. Nmap is a network security scanner with support for
@@ -53,7 +57,7 @@ import javax.xml.bind.JAXBException;
  * and 9919:
  *
  * <pre>
- *   Nmaprun scanRunResult =
+ *   NmapRun scanRunResult =
  *         new NmapClient(nmapFile.getAbsolutePath())
  *             .withTargetNetworkEndpoint(NetworkEndpoints.forIp("1.1.1.1"))
  *             .withHostDiscoveryTechnique(HostDiscoveryTechnique.SYN)
@@ -186,8 +190,6 @@ public class NmapClient {
     }
   }
 
-  private static final String DEFAULT_NMAP_BINARY_PATH = "/usr/bin/nmap";
-
   private final String nmapBinaryPath;
   private final List<NetworkEndpoint> networkEndpoints = new ArrayList<>();
   private final List<HostDiscoveryTechnique> hostDiscoveryTechniques = new ArrayList<>();
@@ -206,9 +208,10 @@ public class NmapClient {
   private Optional<Integer> versionDetectionIntensity = Optional.empty();
   private Optional<TimingTemplate> timing = Optional.empty();
 
-  /** Constructor using nmap default path. */
-  public NmapClient() throws IOException {
-    this(DEFAULT_NMAP_BINARY_PATH, File.createTempFile("nmap", ".report"));
+  /** Constructor using runtime nmap path. */
+  @Inject
+  public NmapClient(@NmapBinaryPath String nmapBinaryPath) throws IOException {
+    this(nmapBinaryPath, File.createTempFile("nmap", ".report"));
   }
 
   /**
@@ -231,8 +234,9 @@ public class NmapClient {
    *     executor suitable for long running and IO blocking tasks. {@link
    *     java.util.concurrent.ThreadPoolExecutor} is a viable option.
    */
-  public Nmaprun run(Executor executor)
-      throws IOException, InterruptedException, ExecutionException, JAXBException {
+  public NmapRun run(Executor executor)
+      throws IOException, InterruptedException, ExecutionException, ParserConfigurationException,
+          SAXException {
     ArrayList<String> arrayList = buildRunCommandArgs();
     String[] args = arrayList.toArray(new String[0]);
     CommandExecutor commandExecutor = CommandExecutorFactory.create(args);
@@ -271,8 +275,16 @@ public class NmapClient {
     if (!targetPorts.isEmpty()) {
       runCommandArgs.add("-p");
       runCommandArgs.add(
-          targetPorts.stream()
-              .map(IPortTarget::getCommandLineRepresentation)
+          Stream.concat(
+                  // According to https://nmap.org/book/man-port-specification.html, once a protocol
+                  // is specified, nmap will use the same protocol for all subsequent ports, so we
+                  // add the ports with no specific protocols first.
+                  targetPorts.stream()
+                      .filter(port -> !port.isProtocolSpecified())
+                      .map(IPortTarget::getCommandLineRepresentation),
+                  targetPorts.stream()
+                      .filter(IPortTarget::isProtocolSpecified)
+                      .map(IPortTarget::getCommandLineRepresentation))
               .collect(joining(",")));
     }
 
@@ -322,19 +334,13 @@ public class NmapClient {
   private static String networkEndpointToCliRepresentation(NetworkEndpoint networkEndpoint) {
     switch (networkEndpoint.getType()) {
       case IP:
+      case IP_HOSTNAME:
         return networkEndpoint.getIpAddress().getAddress();
       case HOSTNAME:
         return networkEndpoint.getHostname().getName();
-      case IP_PORT:
-      case HOSTNAME_PORT:
-      case UNRECOGNIZED:
-      case TYPE_UNSPECIFIED:
+      default:
         throw new AssertionError("Invalid NetworkEndpoint type for Nmap.");
     }
-
-    throw new AssertionError(
-        String.format(
-            "Should never happen. Unchecked NetworkEndpoint type: %s", networkEndpoint.getType()));
   }
 
   /**
@@ -421,8 +427,8 @@ public class NmapClient {
    *
    * @param port Port number.
    */
-  public NmapClient onPort(int port) {
-    this.targetPorts.add(SinglePort.create(port));
+  public NmapClient onPort(int port, TransportProtocol protocol) {
+    this.targetPorts.add(SinglePort.create(port, protocol));
     return this;
   }
 
@@ -433,8 +439,8 @@ public class NmapClient {
    * @param startPort Start port.
    * @param endPort End port.
    */
-  public NmapClient onPortRange(int startPort, int endPort) {
-    this.targetPorts.add(PortRange.create(startPort, endPort));
+  public NmapClient onPortRange(int startPort, int endPort, TransportProtocol protocol) {
+    this.targetPorts.add(PortRange.create(startPort, endPort, protocol));
     return this;
   }
 

@@ -38,6 +38,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Executor;
+import javax.inject.Inject;
 
 /**
  * Client for the open-source ncrack tool. Ncrack is a network authentication tool with a high-speed
@@ -145,8 +146,6 @@ public class NcrackClient {
     }
   }
 
-  private static final String DEFAULT_NRACK_BINARY_PATH = "/usr/bin/ncrack";
-
   private final List<NetworkEndpoint> networkEndpoints = new ArrayList<>();
   private final String ncrackBinaryPath;
   private final File reportFile;
@@ -161,9 +160,10 @@ public class NcrackClient {
   private ImmutableList<String> passwordList;
   private TargetService targetService;
 
-  /** Constructor using ncrack default path. */
-  public NcrackClient() throws IOException {
-    this(DEFAULT_NRACK_BINARY_PATH, File.createTempFile("ncrack", ".report"));
+  /** Constructor using ncrack runtime path. */
+  @Inject
+  public NcrackClient(@NcrackBinaryPath String ncrackBinaryPath) throws IOException {
+    this(ncrackBinaryPath, File.createTempFile("ncrack", ".report"));
   }
 
   /**

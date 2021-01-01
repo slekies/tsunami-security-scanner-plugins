@@ -19,6 +19,9 @@ import com.google.tsunami.common.config.annotations.ConfigProperties;
 
 @ConfigProperties("plugins.google.port_scanner.nmap")
 final class NmapPortScannerConfigs {
+  // Path to the nmap binary.
+  String nmapBinaryPath;
+
   // Ports and port ranges to scan by nmap.
   String portTargets;
 }
